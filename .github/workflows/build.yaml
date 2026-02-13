@@ -33,12 +33,23 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies (pin SageMaker SDK with Pipelines support)
+      - name: Install dependencies (force SageMaker SDK v2 for Pipelines)
         run: |
           python -m pip install --upgrade pip
+  
+            # Remove SageMaker v3 / modular packages if they came preinstalled or got pulled in
+          pip uninstall -y sagemaker sagemaker-core sagemaker-mlops sagemaker-serve sagemaker-train sagemaker-mlflow || true
+  
+            # Your project deps
           pip install -r src/requirements.txt
-          pip install "sagemaker>=2.200.0" "boto3>=1.28.0"
-          python -c "import sagemaker; print('sagemaker version:', sagemaker.__version__)"
+  
+            # Install SageMaker classic SDK v2 (has sagemaker.workflow.*)
+          pip install "sagemaker<3,>=2.200.0" "boto3>=1.28.0" "botocore>=1.31.0"
+  
+            # Debug versions safely (works even if __version__ missing)
+          python -c "import importlib.metadata as m; print('sagemaker:', m.version('sagemaker')); print('boto3:', m.version('boto3'))"
+          python -c "from sagemaker.workflow.pipeline import Pipeline; print('✅ sagemaker.workflow imports OK')"
+  
 
       - name: Create/Update SageMaker Pipeline
         run: |
