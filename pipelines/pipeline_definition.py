@@ -82,7 +82,7 @@ def main():
         inference_instances=["ml.m5.large", "ml.m5.xlarge"],
         transform_instances=["ml.m5.large"],
         model_package_group_name=args.model_package_group_name,
-        approval_status="PendingManualApproval",
+        approval_status="Approved",
     )
 
     register_step = ModelStep(
