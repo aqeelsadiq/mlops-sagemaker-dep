@@ -6,6 +6,7 @@ from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.parameters import ParameterString
 from sagemaker.workflow.steps import TrainingStep
 from sagemaker.workflow.model_step import RegisterModel
+from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.sklearn.estimator import SKLearn
 from sagemaker.inputs import TrainingInput
 
@@ -17,7 +18,7 @@ def parse_args():
     p.add_argument("--pipeline-name", default="nasir-churn-pipeline")
     p.add_argument("--model-package-group-name", default="nasir-churn-model-group")
     p.add_argument("--default-train-data-s3-uri", required=True)
-    p.add_argument("--label-col", default="")  # may be empty -> auto-detect in training.py
+    p.add_argument("--label-col", default="")
     return p.parse_args()
 
 
@@ -25,8 +26,9 @@ def main():
     args = parse_args()
 
     boto_sess = boto3.Session(region_name=args.region)
-    sm_session = sagemaker.session.Session(boto_session=boto_sess)
+    pipeline_session = PipelineSession(boto_session=boto_sess)
 
+    # Pipeline parameters (overridable when starting execution)
     train_data_s3 = ParameterString(
         name="TrainDataS3Uri",
         default_value=args.default_train_data_s3_uri,
@@ -44,9 +46,9 @@ def main():
         framework_version="1.2-1",
         instance_type="ml.m5.large",
         instance_count=1,
-        sagemaker_session=sm_session,
+        sagemaker_session=pipeline_session,
         hyperparameters={
-            "label-col": label_col,  # passed into script; can be empty
+            "label-col": label_col,  # may be empty -> training script auto-detects
         },
     )
 
@@ -73,13 +75,14 @@ def main():
         transform_instances=["ml.m5.large"],
         entry_point="inference.py",
         source_dir="src",
+        sagemaker_session=pipeline_session,
     )
 
     pipeline = Pipeline(
         name=args.pipeline_name,
         parameters=[train_data_s3, label_col],
         steps=[train_step, register_step],
-        sagemaker_session=sm_session,
+        sagemaker_session=pipeline_session,
     )
 
     pipeline.upsert(role_arn=args.role_arn)
