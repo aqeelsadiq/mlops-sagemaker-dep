@@ -1,0 +1,58 @@
+name: Build-Train-Register (Churn)
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    env:
+      PIPELINE_NAME: nasir-churn-pipeline
+      MODEL_GROUP: nasir-churn-model-group
+      S3_DATA_KEY: datasets/customer_churn_processed.csv
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload dataset from repo to S3
+        run: |
+          aws s3 cp "data/customer_churn_processed.csv" "s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/requirements.txt
+          pip install sagemaker boto3
+
+      - name: Create/Update SageMaker Pipeline
+        run: |
+          python pipelines/pipeline_definition.py \
+            --region "${{ secrets.AWS_REGION }}" \
+            --role-arn "${{ secrets.SAGEMAKER_EXEC_ROLE_ARN }}" \
+            --pipeline-name "${{ env.PIPELINE_NAME }}" \
+            --model-package-group-name "${{ env.MODEL_GROUP }}" \
+            --default-train-data-s3-uri "s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}" \
+            --label-col "${{ secrets.LABEL_COL }}"
+
+      - name: Start Pipeline Execution
+        run: |
+          aws sagemaker start-pipeline-execution \
+            --pipeline-name "${{ env.PIPELINE_NAME }}" \
+            --pipeline-parameters \
+              Name=TrainDataS3Uri,Value="s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}" \
+              Name=LabelCol,Value="${{ secrets.LABEL_COL }}"
