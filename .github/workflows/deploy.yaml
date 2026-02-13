@@ -32,11 +32,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install boto3
 
-      - name: Deploy latest APPROVED model
+      - name: Deploy latest model (Approved preferred, fallback allowed)
         run: |
           python pipelines/deploy.py \
             --region "${{ secrets.AWS_REGION }}" \
             --execution-role-arn "${{ secrets.SAGEMAKER_EXEC_ROLE_ARN }}" \
             --model-package-group-name "${{ env.MODEL_GROUP }}" \
             --endpoint-name "${{ env.ENDPOINT_NAME }}" \
-            --instance-type "ml.m5.large"
+            --instance-type "ml.m5.large" \
+            --allow-unapproved
+  

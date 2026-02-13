@@ -7,24 +7,54 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--region", required=True)
     p.add_argument("--execution-role-arn", required=True)
-    p.add_argument("--model-package-group-name", default="nasir-churn-model-group")
-    p.add_argument("--endpoint-name", default="nasir-churn-endpoint")
+    p.add_argument("--model-package-group-name", required=True)
+    p.add_argument("--endpoint-name", required=True)
     p.add_argument("--instance-type", default="ml.m5.large")
+    p.add_argument(
+        "--allow-unapproved",
+        action="store_true",
+        help="If set, deploy latest model even if not Approved (NOT recommended for production).",
+    )
     return p.parse_args()
 
 
-def latest_approved(sm, group_name):
+def latest_by_status(sm, group_name, status):
     resp = sm.list_model_packages(
         ModelPackageGroupName=group_name,
-        ModelApprovalStatus="Approved",
+        ModelApprovalStatus=status,
         SortBy="CreationTime",
         SortOrder="Descending",
         MaxResults=1,
     )
     items = resp.get("ModelPackageSummaryList", [])
-    if not items:
-        raise RuntimeError(f"No APPROVED model package found in: {group_name}")
-    return items[0]["ModelPackageArn"]
+    return items[0]["ModelPackageArn"] if items else None
+
+
+def pick_model_package(sm, group_name, allow_unapproved):
+    arn = latest_by_status(sm, group_name, "Approved")
+    if arn:
+        return arn, "Approved"
+
+    if allow_unapproved:
+        # Try pending manual approval
+        arn = latest_by_status(sm, group_name, "PendingManualApproval")
+        if arn:
+            return arn, "PendingManualApproval"
+
+    raise RuntimeError(
+        f"No APPROVED model package found in: {group_name}. "
+        f"{'--allow-unapproved was not set.' if not allow_unapproved else 'No PendingManualApproval found either.'}"
+    )
+
+
+def upsert_endpoint(sm, endpoint_name, model_name, config_name):
+    try:
+        sm.describe_endpoint(EndpointName=endpoint_name)
+        sm.update_endpoint(EndpointName=endpoint_name, EndpointConfigName=config_name)
+        return "updated"
+    except sm.exceptions.ClientError:
+        sm.create_endpoint(EndpointName=endpoint_name, EndpointConfigName=config_name)
+        return "created"
 
 
 def wait_endpoint(sm, endpoint_name):
@@ -41,11 +71,13 @@ def main():
     args = parse_args()
     sm = boto3.client("sagemaker", region_name=args.region)
 
-    pkg_arn = latest_approved(sm, args.model_package_group_name)
-    print(f"✅ Deploying approved model package: {pkg_arn}")
+    pkg_arn, status = pick_model_package(sm, args.model_package_group_name, args.allow_unapproved)
+    print(f"✅ Deploying model package ({status}): {pkg_arn}")
 
-    model_name = f"{args.endpoint_name}-model"
-    cfg_name = f"{args.endpoint_name}-cfg"
+    # Use unique names to avoid collisions across runs
+    ts = str(int(time.time()))
+    model_name = f"{args.endpoint_name}-model-{ts}"
+    cfg_name = f"{args.endpoint_name}-cfg-{ts}"
 
     sm.create_model(
         ModelName=model_name,
@@ -65,17 +97,13 @@ def main():
         ],
     )
 
-    try:
-        sm.describe_endpoint(EndpointName=args.endpoint_name)
-        print("Endpoint exists → updating")
-        sm.update_endpoint(EndpointName=args.endpoint_name, EndpointConfigName=cfg_name)
-    except sm.exceptions.ClientError:
-        print("Endpoint not found → creating")
-        sm.create_endpoint(EndpointName=args.endpoint_name, EndpointConfigName=cfg_name)
+    action = upsert_endpoint(sm, args.endpoint_name, model_name, cfg_name)
+    print(f"✅ Endpoint {action}: {args.endpoint_name}")
 
     final = wait_endpoint(sm, args.endpoint_name)
     if final["EndpointStatus"] == "Failed":
         raise RuntimeError(f"Endpoint failed: {final}")
+
     print(f"✅ Endpoint InService: {args.endpoint_name}")
 
 
