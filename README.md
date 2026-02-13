@@ -1,1 +1,1 @@
-# mlops-sagemaker-dep
+# mlops-sagemaker-deployment
