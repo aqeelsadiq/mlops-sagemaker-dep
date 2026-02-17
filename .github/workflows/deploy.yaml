@@ -39,7 +39,7 @@ jobs:
             --execution-role-arn "${{ secrets.SAGEMAKER_EXEC_ROLE_ARN }}" \
             --model-package-group-name "${{ env.MODEL_GROUP }}" \
             --endpoint-name "${{ env.ENDPOINT_NAME }}" \
-            --instance-type "ml.m5.large" \
+            --instance-type "ml.t3.medium" \
             --allow-unapproved
   
 # name: Deploy Churn Endpoint

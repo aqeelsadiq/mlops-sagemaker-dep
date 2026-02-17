@@ -46,7 +46,7 @@ def main():
         source_dir="src",
         role=args.role_arn,
         framework_version="1.2-1",
-        instance_type="ml.m5.large",
+        instance_type="ml.t3.medium",
         instance_count=1,
         sagemaker_session=pipeline_session,
         hyperparameters={
@@ -79,8 +79,8 @@ def main():
     register_args = model.register(
         content_types=["application/json", "text/csv"],
         response_types=["application/json"],
-        inference_instances=["ml.m5.large", "ml.m5.xlarge"],
-        transform_instances=["ml.m5.large"],
+        inference_instances=["ml.t3.medium", "ml.t3.medium"],
+        transform_instances=["ml.t3.medium"],
         model_package_group_name=args.model_package_group_name,
         approval_status="Approved",
     )
