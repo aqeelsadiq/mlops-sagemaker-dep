@@ -269,7 +269,7 @@ def main():
 
     condition = ConditionGreaterThanOrEqualTo(left=acc_value, right=acc_threshold_param)
 
-    # 5) Register Model (PendingManualApproval)
+    # 5) Register Model (PendingManualApproval) + include inference code
     register_step = RegisterModel(
     name="AqeelRegisterModel",
     estimator=estimator,
@@ -281,7 +281,10 @@ def main():
     model_package_group_name=args.model_package_group_name,
     approval_status="PendingManualApproval",
     description="Aqeel churn model - registered after passing evaluation threshold.",
+    entry_point="inference.py",   
+    source_dir="src",             
 )
+
 
 
     step_condition = ConditionStep(
