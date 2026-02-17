@@ -271,17 +271,18 @@ def main():
 
     # 5) Register Model (PendingManualApproval)
     register_step = RegisterModel(
-        name="AqeelRegisterModel",
-        estimator=estimator,
-        model_data=step_train.properties.ModelArtifacts.S3ModelArtifacts,
-        content_types=["text/csv", "application/json"],
-        response_types=["application/json"],
-        inference_instances=["ml.t3.medium", "ml.m5.large"],
-        transform_instances=["ml.t3.medium", "ml.m5.large"],
-        model_package_group_name=args.model_package_group_name,
-        approval_status="PendingManualApproval",
-        description="Aqeel churn model - registered after passing evaluation threshold.",
-    )
+    name="AqeelRegisterModel",
+    estimator=estimator,
+    model_data=step_train.properties.ModelArtifacts.S3ModelArtifacts,
+    content_types=["text/csv", "application/json"],
+    response_types=["application/json"],
+    inference_instances=["ml.m5.large"],
+    transform_instances=["ml.m5.large"],
+    model_package_group_name=args.model_package_group_name,
+    approval_status="PendingManualApproval",
+    description="Aqeel churn model - registered after passing evaluation threshold.",
+)
+
 
     step_condition = ConditionStep(
         name="AqeelConditionEvaluation",
