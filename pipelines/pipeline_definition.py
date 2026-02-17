@@ -153,53 +153,44 @@ def parse_args():
     p.add_argument("--model-package-group-name", required=True)
     p.add_argument("--default-bucket", required=True)
 
-    # defaults for upsert; execution can override with pipeline parameters
     p.add_argument("--train-data-s3-uri", required=True)
     p.add_argument("--label-col", required=True)
     p.add_argument("--accuracy-threshold", default="0.75")
+
+    # ✅ NEW: instance types (default to t3.medium to avoid quota=0 on m5.large)
+    p.add_argument("--processing-instance-type", default="ml.t3.medium")
+    p.add_argument("--training-instance-type", default="ml.t3.medium")
+    p.add_argument("--evaluation-instance-type", default="ml.t3.medium")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
 
-    # Create boto session pinned to region
     boto_sess = boto3.Session(region_name=args.region)
-
-    # PipelineSession: IMPORTANT - do NOT pass sagemaker_session= (your SDK doesn't accept it)
     pipeline_sess = PipelineSession(
         boto_session=boto_sess,
         default_bucket=args.default_bucket,
     )
 
-    # -------- Pipeline execution parameters --------
-    train_data_param = ParameterString(
-        name="TrainDataS3Uri", default_value=args.train_data_s3_uri
-    )
-    label_col_param = ParameterString(
-        name="LabelCol", default_value=args.label_col
-    )
-    acc_threshold_param = ParameterFloat(
-        name="AccuracyThreshold", default_value=float(args.accuracy_threshold)
-    )
+    train_data_param = ParameterString("TrainDataS3Uri", default_value=args.train_data_s3_uri)
+    label_col_param = ParameterString("LabelCol", default_value=args.label_col)
+    acc_threshold_param = ParameterFloat("AccuracyThreshold", default_value=float(args.accuracy_threshold))
 
-    # sklearn container image (no JumpStart needed)
     sklearn_image = retrieve(
         framework="sklearn",
         region=args.region,
         version="1.2-1",
         py_version="py3",
-        instance_type="ml.m5.large",
+        instance_type=args.processing_instance_type,
     )
 
-    # ======================
-    # 1) PREPROCESSING
-    # ======================
+    # 1) Preprocessing
     preprocess_processor = ScriptProcessor(
         image_uri=sklearn_image,
         command=["python3"],
         role=args.role_arn,
-        instance_type="ml.m5.large",
+        instance_type=args.processing_instance_type,
         instance_count=1,
         sagemaker_session=pipeline_sess,
     )
@@ -207,59 +198,40 @@ def main():
     step_preprocess = ProcessingStep(
         name="AqeelPreprocessing",
         processor=preprocess_processor,
-        inputs=[
-            ProcessingInput(
-                source=train_data_param,
-                destination="/opt/ml/processing/input",
-            )
-        ],
+        inputs=[ProcessingInput(source=train_data_param, destination="/opt/ml/processing/input")],
         outputs=[
-            ProcessingOutput(
-                output_name="train",
-                source="/opt/ml/processing/train",
-            ),
-            ProcessingOutput(
-                output_name="test",
-                source="/opt/ml/processing/test",
-            ),
+            ProcessingOutput(output_name="train", source="/opt/ml/processing/train"),
+            ProcessingOutput(output_name="test", source="/opt/ml/processing/test"),
         ],
         code="src/preprocessing.py",
     )
 
-    # ======================
-    # 2) TRAINING
-    # ======================
+    # 2) Training
     estimator = SKLearn(
         entry_point="training.py",
         source_dir="src",
         role=args.role_arn,
-        instance_type="ml.m5.large",
+        instance_type=args.training_instance_type,
         framework_version="1.2-1",
         py_version="py3",
         sagemaker_session=pipeline_sess,
-        hyperparameters={
-            "label-col": label_col_param,
-        },
+        hyperparameters={"label-col": label_col_param},
     )
 
     step_train = TrainingStep(
         name="AqeelTraining",
         estimator=estimator,
         inputs={
-            "train": step_preprocess.properties.ProcessingOutputConfig.Outputs[
-                "train"
-            ].S3Output.S3Uri
+            "train": step_preprocess.properties.ProcessingOutputConfig.Outputs["train"].S3Output.S3Uri
         },
     )
 
-    # ======================
-    # 3) EVALUATION
-    # ======================
+    # 3) Evaluation
     eval_processor = ScriptProcessor(
         image_uri=sklearn_image,
         command=["python3"],
         role=args.role_arn,
-        instance_type="ml.m5.large",
+        instance_type=args.evaluation_instance_type,
         instance_count=1,
         sagemaker_session=pipeline_sess,
     )
@@ -279,47 +251,33 @@ def main():
                 destination="/opt/ml/processing/model",
             ),
             ProcessingInput(
-                source=step_preprocess.properties.ProcessingOutputConfig.Outputs[
-                    "test"
-                ].S3Output.S3Uri,
+                source=step_preprocess.properties.ProcessingOutputConfig.Outputs["test"].S3Output.S3Uri,
                 destination="/opt/ml/processing/test",
             ),
         ],
-        outputs=[
-            ProcessingOutput(
-                output_name="evaluation",
-                source="/opt/ml/processing/evaluation",
-            )
-        ],
+        outputs=[ProcessingOutput(output_name="evaluation", source="/opt/ml/processing/evaluation")],
         code="src/evaluation.py",
         property_files=[evaluation_report],
     )
 
-    # ======================
-    # 4) CONDITION EVALUATION
-    # ======================
+    # 4) Condition Evaluation
     acc_value = JsonGet(
         step_name=step_eval.name,
         property_file=evaluation_report,
         json_path="metrics.accuracy",
     )
 
-    condition = ConditionGreaterThanOrEqualTo(
-        left=acc_value,
-        right=acc_threshold_param,
-    )
+    condition = ConditionGreaterThanOrEqualTo(left=acc_value, right=acc_threshold_param)
 
-    # ======================
-    # 5) MODEL REGISTRATION (MANUAL APPROVAL)
-    # ======================
+    # 5) Register Model (PendingManualApproval)
     register_step = RegisterModel(
         name="AqeelRegisterModel",
         estimator=estimator,
         model_data=step_train.properties.ModelArtifacts.S3ModelArtifacts,
         content_types=["text/csv", "application/json"],
         response_types=["application/json"],
-        inference_instances=["ml.m5.large"],
-        transform_instances=["ml.m5.large"],
+        inference_instances=["ml.t3.medium", "ml.m5.large"],
+        transform_instances=["ml.t3.medium", "ml.m5.large"],
         model_package_group_name=args.model_package_group_name,
         approval_status="PendingManualApproval",
         description="Aqeel churn model - registered after passing evaluation threshold.",
@@ -345,5 +303,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 

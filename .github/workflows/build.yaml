@@ -130,7 +130,10 @@ jobs:
             --default-bucket "${{ secrets.S3_BUCKET }}" \
             --train-data-s3-uri "s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}" \
             --label-col "${{ secrets.LABEL_COL }}" \
-            --accuracy-threshold "0.75"
+            --accuracy-threshold "0.75" \
+            --processing-instance-type "ml.t3.medium" \
+            --training-instance-type "ml.t3.medium" \
+            --evaluation-instance-type "ml.t3.medium"
 
       - name: Start Pipeline Execution
         run: |
