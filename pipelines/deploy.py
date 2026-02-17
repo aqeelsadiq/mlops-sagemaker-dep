@@ -9,7 +9,7 @@ def parse_args():
     p.add_argument("--execution-role-arn", required=True)
     p.add_argument("--model-package-group-name", required=True)
     p.add_argument("--endpoint-name", required=True)
-    p.add_argument("--instance-type", default="ml.t3.medium")
+    p.add_argument("--instance-type", default="ml.m5.large")
     p.add_argument(
         "--allow-unapproved",
         action="store_true",

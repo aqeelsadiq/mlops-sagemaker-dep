@@ -46,7 +46,7 @@ def main():
         source_dir="src",
         role=args.role_arn,
         framework_version="1.2-1",
-        instance_type="ml.t3.medium",
+        instance_type="ml.m5.large",
         instance_count=1,
         sagemaker_session=pipeline_session,
         hyperparameters={
