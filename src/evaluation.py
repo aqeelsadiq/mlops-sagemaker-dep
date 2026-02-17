@@ -5,15 +5,35 @@ import joblib
 import pandas as pd
 from sklearn.metrics import accuracy_score, roc_auc_score
 
-MODEL_TAR = "/opt/ml/processing/model/model.tar.gz"
-MODEL_DIR = "/opt/ml/processing/model_extracted"
-MODEL_FILE = os.path.join(MODEL_DIR, "model.joblib")
+
+MODEL_INPUT_DIR = "/opt/ml/processing/model"
+EXTRACT_DIR = "/opt/ml/processing/model_extracted"
 
 TEST_PATH = "/opt/ml/processing/test/test.csv"
 OUT_DIR = "/opt/ml/processing/evaluation"
 OUT_FILE = os.path.join(OUT_DIR, "evaluation.json")
 
 COMMON_LABEL_COLS = ["label", "Label", "churn", "Churn", "target", "Target", "y", "Y"]
+
+
+def ls_tree(root: str, max_files: int = 200):
+    """Print directory tree for debugging."""
+    print(f"\n📁 Listing: {root}")
+    if not os.path.exists(root):
+        print("  (does not exist)")
+        return
+
+    count = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel = os.path.relpath(dirpath, root)
+        indent = "  " * (0 if rel == "." else rel.count(os.sep) + 1)
+        print(f"{indent}{os.path.basename(dirpath)}/")
+        for f in filenames:
+            print(f"{indent}  - {f}")
+            count += 1
+            if count >= max_files:
+                print(f"{indent}  ... (truncated)")
+                return
 
 
 def detect_label_col(df: pd.DataFrame) -> str:
@@ -23,40 +43,74 @@ def detect_label_col(df: pd.DataFrame) -> str:
     return df.columns[-1]
 
 
-def extract_model():
-    if not os.path.exists(MODEL_TAR):
-        raise FileNotFoundError(
-            f"Expected model artifact at {MODEL_TAR}. "
-            "Training output is usually model.tar.gz"
-        )
+def find_model_tar() -> str:
+    """Find model tarball from the ProcessingInput mount."""
+    if not os.path.exists(MODEL_INPUT_DIR):
+        raise FileNotFoundError(f"{MODEL_INPUT_DIR} not found")
 
-    os.makedirs(MODEL_DIR, exist_ok=True)
-    with tarfile.open(MODEL_TAR, "r:gz") as tar:
-        tar.extractall(MODEL_DIR)
+    # Prefer the standard name
+    candidate = os.path.join(MODEL_INPUT_DIR, "model.tar.gz")
+    if os.path.exists(candidate):
+        return candidate
 
-    if not os.path.exists(MODEL_FILE):
-        # helpful debug
-        files = []
-        for root, _, fnames in os.walk(MODEL_DIR):
-            for f in fnames:
-                files.append(os.path.join(root, f))
+    # Otherwise pick any tar.gz file
+    tars = [os.path.join(MODEL_INPUT_DIR, f) for f in os.listdir(MODEL_INPUT_DIR) if f.endswith(".tar.gz")]
+    if not tars:
         raise FileNotFoundError(
-            f"model.joblib not found after extracting. Looked for {MODEL_FILE}. "
-            f"Extracted files: {files}"
+            f"No .tar.gz model artifact found in {MODEL_INPUT_DIR}. "
+            f"Contents: {os.listdir(MODEL_INPUT_DIR)}"
         )
+    # pick first
+    return tars[0]
+
+
+def extract_tar(tar_path: str):
+    os.makedirs(EXTRACT_DIR, exist_ok=True)
+    print(f"\n📦 Extracting: {tar_path} -> {EXTRACT_DIR}")
+    with tarfile.open(tar_path, "r:gz") as tar:
+        tar.extractall(EXTRACT_DIR)
+
+
+def find_model_file() -> str:
+    """Find model.joblib anywhere under EXTRACT_DIR."""
+    for dirpath, _, filenames in os.walk(EXTRACT_DIR):
+        for f in filenames:
+            if f == "model.joblib":
+                return os.path.join(dirpath, f)
+    raise FileNotFoundError("model.joblib not found after extracting model tarball")
 
 
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    extract_model()
-    model = joblib.load(MODEL_FILE)
+    print("✅ Starting evaluation")
+    print("MODEL_INPUT_DIR:", MODEL_INPUT_DIR)
+    print("TEST_PATH:", TEST_PATH)
 
+    # Debug: show what's mounted
+    ls_tree(MODEL_INPUT_DIR)
+    ls_tree(os.path.dirname(TEST_PATH))
+
+    # Locate + extract model tar
+    tar_path = find_model_tar()
+    extract_tar(tar_path)
+
+    # Debug: show extracted contents
+    ls_tree(EXTRACT_DIR)
+
+    # Load model
+    model_path = find_model_file()
+    print("\n✅ Loading model:", model_path)
+    model = joblib.load(model_path)
+
+    # Load test data
     df = pd.read_csv(TEST_PATH)
     if df.empty:
         raise ValueError("Test dataset is empty.")
 
     label_col = detect_label_col(df)
+    print("✅ Detected label column:", label_col)
+
     y = df[label_col]
     X = df.drop(columns=[label_col])
 
@@ -68,7 +122,8 @@ def main():
         if y.nunique() == 2 and hasattr(model, "predict_proba"):
             proba = model.predict_proba(X)[:, 1]
             auc = float(roc_auc_score(y, proba))
-    except Exception:
+    except Exception as e:
+        print("⚠️ ROC AUC skipped due to:", repr(e))
         auc = None
 
     payload = {"metrics": {"accuracy": acc}}
@@ -78,7 +133,7 @@ def main():
     with open(OUT_FILE, "w") as f:
         json.dump(payload, f)
 
-    print("✅ Evaluation written:", OUT_FILE)
+    print("\n✅ Evaluation written:", OUT_FILE)
     print(payload)
 
 
