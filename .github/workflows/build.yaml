@@ -1,74 +1,4 @@
-name: Build-Train-Register (Churn)
-
-on:
-  push:
-    branches: [ "main" ]
-
-jobs:
-  pipeline:
-    runs-on: ubuntu-latest
-
-    env:
-      PIPELINE_NAME: nasir-churn-pipeline
-      MODEL_GROUP: nasir-churn-model-group
-      S3_DATA_KEY: datasets/customer_churn_processed.csv
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Upload dataset from repo to S3
-        run: |
-          aws s3 cp "data/customer_churn_processed.csv" "s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}"
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies (stable SageMaker SDK v2)
-        run: |
-          python -m pip install --upgrade pip
-  
-            # Remove v3 / modular packages if present
-          pip uninstall -y sagemaker sagemaker-core sagemaker-mlops sagemaker-serve sagemaker-train sagemaker-mlflow || true
-  
-          pip install -r src/requirements.txt
-  
-            # Pin SageMaker v2 line. This avoids mismatched modules.
-          pip install "sagemaker>=2.218.0,<3" "boto3>=1.28.0" "botocore>=1.31.0"
-  
-            # Debug
-          python -c "import importlib.metadata as m; print('sagemaker:', m.version('sagemaker'))"
-          python -c "from sagemaker.workflow.pipeline import Pipeline; from sagemaker.workflow.model_step import ModelStep; print('✅ pipelines imports OK')"
-  
-  
-
-      - name: Create/Update SageMaker Pipeline
-        run: |
-          python pipelines/pipeline_definition.py \
-            --region "${{ secrets.AWS_REGION }}" \
-            --role-arn "${{ secrets.SAGEMAKER_EXEC_ROLE_ARN }}" \
-            --pipeline-name "${{ env.PIPELINE_NAME }}" \
-            --model-package-group-name "${{ env.MODEL_GROUP }}" \
-            --default-train-data-s3-uri "s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}" \
-            --label-col "${{ secrets.LABEL_COL }}"
-
-      - name: Start Pipeline Execution
-        run: |
-          aws sagemaker start-pipeline-execution \
-            --pipeline-name "${{ env.PIPELINE_NAME }}" \
-            --pipeline-parameters \
-              Name=TrainDataS3Uri,Value="s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}" \
-              Name=LabelCol,Value="${{ secrets.LABEL_COL }}"
-# name: Build-Train-Evaluate-Register (Churn)
+# name: Build-Train-Register (Churn)
 
 # on:
 #   push:
@@ -79,8 +9,8 @@ jobs:
 #     runs-on: ubuntu-latest
 
 #     env:
-#       PIPELINE_NAME: churn-mlops-pipeline
-#       MODEL_GROUP: churn-model-group
+#       PIPELINE_NAME: nasir-churn-pipeline
+#       MODEL_GROUP: nasir-churn-model-group
 #       S3_DATA_KEY: datasets/customer_churn_processed.csv
 
 #     steps:
@@ -103,15 +33,23 @@ jobs:
 #         with:
 #           python-version: "3.11"
 
-#       - name: Install dependencies (SageMaker SDK v2)
+#       - name: Install dependencies (stable SageMaker SDK v2)
 #         run: |
 #           python -m pip install --upgrade pip
+  
+#             # Remove v3 / modular packages if present
 #           pip uninstall -y sagemaker sagemaker-core sagemaker-mlops sagemaker-serve sagemaker-train sagemaker-mlflow || true
+  
 #           pip install -r src/requirements.txt
+  
+#             # Pin SageMaker v2 line. This avoids mismatched modules.
 #           pip install "sagemaker>=2.218.0,<3" "boto3>=1.28.0" "botocore>=1.31.0"
-
+  
+#             # Debug
 #           python -c "import importlib.metadata as m; print('sagemaker:', m.version('sagemaker'))"
-#           python -c "from sagemaker.workflow.pipeline import Pipeline; print('✅ pipeline imports OK')"
+#           python -c "from sagemaker.workflow.pipeline import Pipeline; from sagemaker.workflow.model_step import ModelStep; print('✅ pipelines imports OK')"
+  
+  
 
 #       - name: Create/Update SageMaker Pipeline
 #         run: |
@@ -119,12 +57,87 @@ jobs:
 #             --region "${{ secrets.AWS_REGION }}" \
 #             --role-arn "${{ secrets.SAGEMAKER_EXEC_ROLE_ARN }}" \
 #             --pipeline-name "${{ env.PIPELINE_NAME }}" \
-#             --model-package-group "${{ env.MODEL_GROUP }}" \
-#             --input-data-s3 "s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}"
+#             --model-package-group-name "${{ env.MODEL_GROUP }}" \
+#             --default-train-data-s3-uri "s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}" \
+#             --label-col "${{ secrets.LABEL_COL }}"
 
 #       - name: Start Pipeline Execution
 #         run: |
 #           aws sagemaker start-pipeline-execution \
 #             --pipeline-name "${{ env.PIPELINE_NAME }}" \
 #             --pipeline-parameters \
-#               Name=InputData,Value="s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}"
+#               Name=TrainDataS3Uri,Value="s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}" \
+#               Name=LabelCol,Value="${{ secrets.LABEL_COL }}"
+
+
+
+
+
+name: Build-Train-Evaluate-Register (Aqeel Churn)
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    env:
+      PIPELINE_NAME: aqeel-churn-pipeline
+      MODEL_GROUP: aqeel-churn-model-group
+      S3_DATA_KEY: datasets/customer_churn_processed.csv
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload dataset to S3
+        run: |
+          aws s3 cp "data/customer_churn_processed.csv" "s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+
+          # Ensure SageMaker v2 line to avoid modular v3 conflicts
+          pip uninstall -y sagemaker sagemaker-core sagemaker-mlops sagemaker-serve sagemaker-train sagemaker-mlflow || true
+
+          pip install -r src/requirements.txt
+          pip install "sagemaker>=2.218.0,<3" "boto3>=1.28.0" "botocore>=1.31.0"
+
+          python -c "import importlib.metadata as m; print('sagemaker:', m.version('sagemaker'))"
+
+      - name: Create/Update SageMaker Pipeline
+        run: |
+          python pipelines/pipeline_definition.py \
+            --region "${{ secrets.AWS_REGION }}" \
+            --role-arn "${{ secrets.SAGEMAKER_EXEC_ROLE_ARN }}" \
+            --pipeline-name "${{ env.PIPELINE_NAME }}" \
+            --model-package-group-name "${{ env.MODEL_GROUP }}" \
+            --default-bucket "${{ secrets.S3_BUCKET }}" \
+            --train-data-s3-uri "s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}" \
+            --label-col "${{ secrets.LABEL_COL }}" \
+            --accuracy-threshold "0.75"
+
+      - name: Start Pipeline Execution
+        run: |
+          aws sagemaker start-pipeline-execution \
+            --pipeline-name "${{ env.PIPELINE_NAME }}" \
+            --pipeline-parameters \
+              Name=TrainDataS3Uri,Value="s3://${{ secrets.S3_BUCKET }}/${{ env.S3_DATA_KEY }}" \
+              Name=LabelCol,Value="${{ secrets.LABEL_COL }}" \
+              Name=AccuracyThreshold,Value="0.75"
+
