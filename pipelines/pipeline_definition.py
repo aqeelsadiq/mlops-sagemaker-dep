@@ -127,10 +127,15 @@
 
 
 import argparse
-import json
-
+import boto3
 import sagemaker
+
+from sagemaker.image_uris import retrieve
+from sagemaker.processing import ScriptProcessor, ProcessingInput, ProcessingOutput
+from sagemaker.sklearn.estimator import SKLearn
+
 from sagemaker.workflow.pipeline import Pipeline
+from sagemaker.workflow.pipeline_context import PipelineSession
 from sagemaker.workflow.parameters import ParameterString, ParameterFloat
 from sagemaker.workflow.steps import ProcessingStep, TrainingStep
 from sagemaker.workflow.properties import PropertyFile
@@ -138,8 +143,6 @@ from sagemaker.workflow.functions import JsonGet
 from sagemaker.workflow.conditions import ConditionGreaterThanOrEqualTo
 from sagemaker.workflow.condition_step import ConditionStep
 from sagemaker.workflow.step_collections import RegisterModel
-from sagemaker.processing import ScriptProcessor, ProcessingInput, ProcessingOutput
-from sagemaker.sklearn.estimator import SKLearn
 
 
 def parse_args():
@@ -150,7 +153,7 @@ def parse_args():
     p.add_argument("--model-package-group-name", required=True)
     p.add_argument("--default-bucket", required=True)
 
-    # defaults for upsert; execution overrides via parameters
+    # defaults for upsert; execution can override with pipeline parameters
     p.add_argument("--train-data-s3-uri", required=True)
     p.add_argument("--label-col", required=True)
     p.add_argument("--accuracy-threshold", default="0.75")
@@ -160,18 +163,28 @@ def parse_args():
 def main():
     args = parse_args()
 
-    sess = sagemaker.session.Session(default_bucket=args.default_bucket)
-    pipeline_sess = sagemaker.workflow.pipeline_context.PipelineSession(
-        sagemaker_session=sess
+    # Create boto session pinned to region
+    boto_sess = boto3.Session(region_name=args.region)
+
+    # PipelineSession: IMPORTANT - do NOT pass sagemaker_session= (your SDK doesn't accept it)
+    pipeline_sess = PipelineSession(
+        boto_session=boto_sess,
+        default_bucket=args.default_bucket,
     )
 
-    # -------- Pipeline parameters (overridden at execution time) --------
-    train_data_param = ParameterString(name="TrainDataS3Uri", default_value=args.train_data_s3_uri)
-    label_col_param = ParameterString(name="LabelCol", default_value=args.label_col)
-    acc_threshold_param = ParameterFloat(name="AccuracyThreshold", default_value=float(args.accuracy_threshold))
+    # -------- Pipeline execution parameters --------
+    train_data_param = ParameterString(
+        name="TrainDataS3Uri", default_value=args.train_data_s3_uri
+    )
+    label_col_param = ParameterString(
+        name="LabelCol", default_value=args.label_col
+    )
+    acc_threshold_param = ParameterFloat(
+        name="AccuracyThreshold", default_value=float(args.accuracy_threshold)
+    )
 
-    # -------- 1) Preprocessing --------
-    sklearn_image = sagemaker.image_uris.retrieve(
+    # sklearn container image (no JumpStart needed)
+    sklearn_image = retrieve(
         framework="sklearn",
         region=args.region,
         version="1.2-1",
@@ -179,6 +192,9 @@ def main():
         instance_type="ml.m5.large",
     )
 
+    # ======================
+    # 1) PREPROCESSING
+    # ======================
     preprocess_processor = ScriptProcessor(
         image_uri=sklearn_image,
         command=["python3"],
@@ -210,7 +226,9 @@ def main():
         code="src/preprocessing.py",
     )
 
-    # -------- 2) Training --------
+    # ======================
+    # 2) TRAINING
+    # ======================
     estimator = SKLearn(
         entry_point="training.py",
         source_dir="src",
@@ -234,7 +252,9 @@ def main():
         },
     )
 
-    # -------- 3) Evaluation --------
+    # ======================
+    # 3) EVALUATION
+    # ======================
     eval_processor = ScriptProcessor(
         image_uri=sklearn_image,
         command=["python3"],
@@ -275,16 +295,23 @@ def main():
         property_files=[evaluation_report],
     )
 
-    # -------- 4) Condition Evaluation --------
+    # ======================
+    # 4) CONDITION EVALUATION
+    # ======================
     acc_value = JsonGet(
         step_name=step_eval.name,
         property_file=evaluation_report,
         json_path="metrics.accuracy",
     )
 
-    condition = ConditionGreaterThanOrEqualTo(left=acc_value, right=acc_threshold_param)
+    condition = ConditionGreaterThanOrEqualTo(
+        left=acc_value,
+        right=acc_threshold_param,
+    )
 
-    # -------- 5) Model Registration (PendingManualApproval) --------
+    # ======================
+    # 5) MODEL REGISTRATION (MANUAL APPROVAL)
+    # ======================
     register_step = RegisterModel(
         name="AqeelRegisterModel",
         estimator=estimator,
@@ -313,9 +340,10 @@ def main():
     )
 
     pipeline.upsert(role_arn=args.role_arn)
-    print("✅ Pipeline upserted:", args.pipeline_name)
+    print(f"✅ Pipeline upserted successfully: {args.pipeline_name}")
 
 
 if __name__ == "__main__":
     main()
+
 
