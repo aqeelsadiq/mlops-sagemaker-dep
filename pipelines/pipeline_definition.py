@@ -79,8 +79,8 @@ def main():
     register_args = model.register(
         content_types=["application/json", "text/csv"],
         response_types=["application/json"],
-        inference_instances=["ml.t3.medium", "ml.t3.medium"],
-        transform_instances=["ml.t3.medium"],
+        inference_instances=["ml.m5.large", "ml.m5.large"],
+        transform_instances=["ml.m5.large"],
         model_package_group_name=args.model_package_group_name,
         approval_status="Approved",
     )
